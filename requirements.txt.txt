@@ -6,3 +6,7 @@ matplotlib
 ortools
 numpy
 pandas
+geopandas
+shapely
+pyproj
+rtree
