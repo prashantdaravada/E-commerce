@@ -1,5 +1,3 @@
-import sys
-st.write(sys.executable)
 import streamlit as st
 import pulp
 import networkx as nx
