@@ -1,129 +1,130 @@
 import streamlit as st
 import networkx as nx
 import matplotlib.pyplot as plt
-import pandas as pd
-from networkx.algorithms import community
 
+# Try importing Louvain
+try:
+    from community import community_louvain
+except ImportError:
+    st.error("Please install: pip install python-louvain")
+    st.stop()
+
+# -----------------------------------
+# Page Config
+# -----------------------------------
 st.set_page_config(page_title="Fan Network Analysis", layout="wide")
 
 st.title("🎬 Entertainment Fan Network Analysis")
-st.write("Graph-Based Community Detection & Influencer Ranking")
 
-# -----------------------------
-# FUNCTION: Analyze Graph
-# -----------------------------
-def analyze_graph(G):
+st.markdown("Analyze fan communities and identify influencers using Graph Theory.")
 
-    # Centrality Measures
-    degree = nx.degree_centrality(G)
-    betweenness = nx.betweenness_centrality(G)
-    eigenvector = nx.eigenvector_centrality(G, max_iter=1000)
+# -----------------------------------
+# User Input Section
+# -----------------------------------
+st.sidebar.header("🔧 Input Network")
 
-    # DataFrame
-    df = pd.DataFrame({
-        "Fan": list(degree.keys()),
-        "Degree": list(degree.values()),
-        "Betweenness": list(betweenness.values()),
-        "Eigenvector": list(eigenvector.values())
-    })
+st.sidebar.markdown("Enter edges (connections) as comma-separated pairs:")
+st.sidebar.markdown("Example: A-B, B-C, C-D")
 
-    # Top influencers
-    top_degree = max(degree, key=degree.get)
-    top_between = max(betweenness, key=betweenness.get)
-    top_eigen = max(eigenvector, key=eigenvector.get)
-
-    return df, top_degree, top_between, top_eigen
-
-
-# -----------------------------
-# SCENARIO SELECTION
-# -----------------------------
-scenario = st.sidebar.selectbox(
-    "Select Network Scenario",
-    ["Clustered Network", "Star Network"]
+edge_input = st.sidebar.text_area(
+    "Enter Connections",
+    "A-B, A-D, B-D, B-E, C-E, C-F, E-F"
 )
 
-# -----------------------------
-# BUILD GRAPH
-# -----------------------------
-fans = ["A","B","C","D","E","F","G","H"]
+# -----------------------------------
+# Parse Input
+# -----------------------------------
+def parse_edges(edge_text):
+    edges = []
+    pairs = edge_text.split(",")
+    for pair in pairs:
+        if "-" in pair:
+            u, v = pair.strip().split("-")
+            edges.append((u.strip(), v.strip()))
+    return edges
 
-if scenario == "Clustered Network":
+
+# -----------------------------------
+# Analysis Function
+# -----------------------------------
+def run_analysis(edges):
     G = nx.Graph()
-    edges = [("A","B"), ("A","C"), ("B","C"), ("B","D"),
-             ("C","E"), ("E","F"), ("F","G"), ("G","H"), ("F","H")]
-    title = "Clustered Fan Network"
+    G.add_edges_from(edges)
 
-else:
-    G = nx.Graph()
-    edges = [("A","B"), ("A","C"), ("A","D"),
-             ("A","E"), ("A","F"), ("A","G"), ("A","H")]
-    title = "Star Fan Network"
+    # Community Detection
+    partition = community_louvain.best_partition(G)
 
-G.add_nodes_from(fans)
-G.add_edges_from(edges)
+    # Influencer Ranking
+    pagerank = nx.pagerank(G)
+    degree = nx.degree_centrality(G)
 
-# -----------------------------
-# ANALYSIS
-# -----------------------------
-df, top_degree, top_between, top_eigen = analyze_graph(G)
+    sorted_pr = sorted(pagerank.items(), key=lambda x: x[1], reverse=True)
 
-# -----------------------------
-# DISPLAY RESULTS
-# -----------------------------
-st.subheader("📊 Centrality Metrics")
-st.dataframe(df)
+    return G, partition, sorted_pr, degree
 
-col1, col2, col3 = st.columns(3)
 
-col1.metric("Top Degree Influencer", top_degree)
-col2.metric("Top Betweenness Influencer", top_between)
-col3.metric("Top Eigenvector Influencer", top_eigen)
+# -----------------------------------
+# Visualization Function
+# -----------------------------------
+def draw_graph(G, partition):
+    pos = nx.spring_layout(G, seed=42)
+    colors = [partition[node] for node in G.nodes()]
 
-# -----------------------------
-# COMMUNITY DETECTION
-# -----------------------------
-st.subheader("👥 Community Detection (Girvan-Newman)")
+    fig, ax = plt.subplots()
+    nx.draw(
+        G, pos,
+        with_labels=True,
+        node_color=colors,
+        cmap=plt.cm.Set3,
+        node_size=800,
+        font_size=10,
+        ax=ax
+    )
+    return fig
 
-comp = community.girvan_newman(G)
-first_level = next(comp)
-communities = [list(c) for c in first_level]
 
-st.write("Detected Communities:", communities)
+# -----------------------------------
+# Run Analysis Button
+# -----------------------------------
+if st.button("Run Analysis"):
 
-# -----------------------------
-# GRAPH VISUALIZATION
-# -----------------------------
-st.subheader("🌐 Network Graph")
+    edges = parse_edges(edge_input)
 
-fig, ax = plt.subplots()
-pos = nx.spring_layout(G)
-nx.draw(G, pos, with_labels=True, ax=ax)
-st.pyplot(fig)
+    if len(edges) == 0:
+        st.warning("Please enter valid edges!")
+    else:
+        G, partition, influencers, degree = run_analysis(edges)
 
-# -----------------------------
-# CENTRALITY CHART
-# -----------------------------
-st.subheader("📈 Centrality Comparison")
+        col1, col2 = st.columns(2)
 
-fig2, ax2 = plt.subplots()
-df.set_index("Fan").plot(kind="bar", ax=ax2)
-st.pyplot(fig2)
+        # -------------------------------
+        # Graph Visualization
+        # -------------------------------
+        with col1:
+            st.subheader("📊 Network Graph")
+            fig = draw_graph(G, partition)
+            st.pyplot(fig)
 
-# -----------------------------
-# INSIGHTS
-# -----------------------------
-st.subheader("🧠 Insights")
+        # -------------------------------
+        # Results
+        # -------------------------------
+        with col2:
+            st.subheader("⭐ Influencer Ranking (PageRank)")
+            for node, score in influencers:
+                st.write(f"{node}: {round(score, 3)}")
 
-if scenario == "Clustered Network":
-    st.write("""
-    - Two communities are visible.
-    - Bridge nodes have high betweenness.
-    - Network is more stable and decentralized.
-    """)
-else:
-    st.write("""
-    - One central influencer dominates.
-    - Network is highly centralized.
-    - Removing the hub disconnects the network.
-    """)
+            st.subheader("📈 Degree Centrality")
+            for node, score in degree.items():
+                st.write(f"{node}: {round(score, 3)}")
+
+        # -------------------------------
+        # Communities
+        # -------------------------------
+        st.subheader("👥 Detected Communities")
+
+        community_dict = {}
+        for node, comm in partition.items():
+            community_dict.setdefault(comm, []).append(node)
+
+        for comm, members in community_dict.items():
+            st.write(f"Community {comm}: {members}")
