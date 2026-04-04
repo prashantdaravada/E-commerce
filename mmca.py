@@ -1,78 +1,54 @@
+# app.py
+
+# Run using:
+# streamlit run app.py
+
 import streamlit as st
 import networkx as nx
 import matplotlib.pyplot as plt
 
-# Try importing Louvain
+# Louvain community detection
 try:
-    from community import community_louvain
+    import community as community_louvain
 except ImportError:
-    st.error("Please install: pip install python-louvain")
-    st.stop()
-
-# -----------------------------------
-# Page Config
-# -----------------------------------
-st.set_page_config(page_title="Fan Network Analysis", layout="wide")
-
-st.title("🎬 Entertainment Fan Network Analysis")
-
-st.markdown("Analyze fan communities and identify influencers using Graph Theory.")
-
-# -----------------------------------
-# User Input Section
-# -----------------------------------
-st.sidebar.header("🔧 Input Network")
-
-st.sidebar.markdown("Enter edges (connections) as comma-separated pairs:")
-st.sidebar.markdown("Example: A-B, B-C, C-D")
-
-edge_input = st.sidebar.text_area(
-    "Enter Connections",
-    "A-B, A-D, B-D, B-E, C-E, C-F, E-F"
-)
-
-# -----------------------------------
-# Parse Input
-# -----------------------------------
-def parse_edges(edge_text):
-    edges = []
-    pairs = edge_text.split(",")
-    for pair in pairs:
-        if "-" in pair:
-            u, v = pair.strip().split("-")
-            edges.append((u.strip(), v.strip()))
-    return edges
+    import community.community_louvain as community_louvain
 
 
-# -----------------------------------
-# Analysis Function
-# -----------------------------------
-def run_analysis(edges):
+# -----------------------------
+# Functions
+# -----------------------------
+def build_graph(edges):
     G = nx.Graph()
     G.add_edges_from(edges)
+    return G
 
-    # Community Detection
-    partition = community_louvain.best_partition(G)
 
-    # Influencer Ranking
-    pagerank = nx.pagerank(G)
+def detect_communities(G):
+    return community_louvain.best_partition(G)
+
+
+def find_influencers(G):
     degree = nx.degree_centrality(G)
+    betweenness = nx.betweenness_centrality(G)
 
-    sorted_pr = sorted(pagerank.items(), key=lambda x: x[1], reverse=True)
+    combined_score = {
+        node: (degree[node] + betweenness[node]) / 2
+        for node in G.nodes()
+    }
 
-    return G, partition, sorted_pr, degree
+    influencers = sorted(combined_score.items(), key=lambda x: x[1], reverse=True)
+
+    return influencers, degree, betweenness
 
 
-# -----------------------------------
-# Visualization Function
-# -----------------------------------
-def draw_graph(G, partition):
+def visualize_graph(G, partition):
     pos = nx.spring_layout(G, seed=42)
     colors = [partition[node] for node in G.nodes()]
 
     fig, ax = plt.subplots()
     nx.draw(
-        G, pos,
+        G,
+        pos,
         with_labels=True,
         node_color=colors,
         cmap=plt.cm.Set3,
@@ -80,51 +56,83 @@ def draw_graph(G, partition):
         font_size=10,
         ax=ax
     )
+    ax.set_title("Fan Network Graph")
     return fig
 
 
-# -----------------------------------
-# Run Analysis Button
-# -----------------------------------
-if st.button("Run Analysis"):
+# -----------------------------
+# Streamlit UI
+# -----------------------------
+st.set_page_config(page_title="Fan Network Analysis", layout="wide")
 
+st.title("🎬 Entertainment Fan Network Analysis")
+
+st.markdown("Analyze fan communities and find influencers using graph theory.")
+
+# -----------------------------
+# User Input
+# -----------------------------
+st.sidebar.header("Input Data")
+
+edge_input = st.sidebar.text_area(
+    "Enter edges (format: A-B, B-C, C-D)",
+    "A-B, A-C, B-C, D-E, E-F, D-F, C-D, G-H, H-I, G-I"
+)
+
+run_button = st.sidebar.button("Run Analysis")
+
+# -----------------------------
+# Process Input
+# -----------------------------
+def parse_edges(edge_text):
+    edges = []
+    pairs = edge_text.split(",")
+
+    for pair in pairs:
+        nodes = pair.strip().split("-")
+        if len(nodes) == 2:
+            edges.append((nodes[0].strip(), nodes[1].strip()))
+    return edges
+
+
+# -----------------------------
+# Run Analysis
+# -----------------------------
+if run_button:
     edges = parse_edges(edge_input)
 
     if len(edges) == 0:
-        st.warning("Please enter valid edges!")
+        st.error("Please enter valid edges!")
     else:
-        G, partition, influencers, degree = run_analysis(edges)
+        G = build_graph(edges)
+        partition = detect_communities(G)
+        influencers, degree, betweenness = find_influencers(G)
 
+        # Layout
         col1, col2 = st.columns(2)
 
-        # -------------------------------
-        # Graph Visualization
-        # -------------------------------
+        # -----------------------------
+        # Influencers
+        # -----------------------------
         with col1:
-            st.subheader("📊 Network Graph")
-            fig = draw_graph(G, partition)
-            st.pyplot(fig)
-
-        # -------------------------------
-        # Results
-        # -------------------------------
-        with col2:
-            st.subheader("⭐ Influencer Ranking (PageRank)")
+            st.subheader("🔥 Influencer Ranking")
             for node, score in influencers:
-                st.write(f"{node}: {round(score, 3)}")
+                st.write(f"{node} → {score:.4f}")
 
-            st.subheader("📈 Degree Centrality")
-            for node, score in degree.items():
-                st.write(f"{node}: {round(score, 3)}")
-
-        # -------------------------------
+        # -----------------------------
         # Communities
-        # -------------------------------
-        st.subheader("👥 Detected Communities")
+        # -----------------------------
+        with col2:
+            st.subheader("👥 Communities")
+            for node, comm in partition.items():
+                st.write(f"{node} → Community {comm}")
 
-        community_dict = {}
-        for node, comm in partition.items():
-            community_dict.setdefault(comm, []).append(node)
+        # -----------------------------
+        # Graph Visualization
+        # -----------------------------
+        st.subheader("📊 Network Visualization")
+        fig = visualize_graph(G, partition)
+        st.pyplot(fig)
 
-        for comm, members in community_dict.items():
-            st.write(f"Community {comm}: {members}")
+else:
+    st.info("Enter data and click 'Run Analysis' 🚀")
